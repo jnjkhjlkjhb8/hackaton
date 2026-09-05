@@ -4,6 +4,8 @@ package config
 import (
 	"errors"
 	"os"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -15,6 +17,9 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return Config{}, err
+	}
 	cfg := Config{
 		DatabaseURL:   os.Getenv("DATABASE_URL"),
 		HTTPAddr:      os.Getenv("HTTP_ADDR"),

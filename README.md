@@ -45,6 +45,9 @@ VPS 內的 Go 服務使用 `tcp://mosquitto:1883`。
 cp .env.example .env
 ```
 
+Go 服務啟動時會自動讀取專案根目錄的 `.env`；若檔案不存在，則改讀 VPS
+提供的系統環境變數，方便 Docker 與正式部署使用。
+
 | 變數 | 用途 |
 | --- | --- |
 | `DATABASE_URL` | PostgreSQL connection string |
