@@ -34,6 +34,7 @@ func NewServer(pool *pgxpool.Pool, logger *slog.Logger, addr string, enrollmentS
 	s := &Server{pool: pool, logger: logger, enrollment: enrollmentService, authorizer: authorizer}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /v1/dashboard/measurements", s.dashboardMeasurements)
 	mux.HandleFunc("POST /v1/admin/master-enrollments", s.createMasterProvisioning)
 	mux.HandleFunc("POST /v1/device/master-enrollments", s.enrollMaster)
 	mux.HandleFunc("POST /v1/device/slave-enrollments", s.enrollSlave)
@@ -76,6 +77,74 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "healthy"})
+}
+
+type dashboardResponse struct {
+	Plants []dashboardPlant `json:"plants"`
+}
+
+type dashboardPlant struct {
+	ID       string             `json:"id"`
+	Label    string             `json:"label"`
+	Readings []dashboardReading `json:"readings"`
+}
+
+type dashboardReading struct {
+	MeasuredAt          time.Time `json:"measured_at"`
+	PH                  float64   `json:"ph"`
+	ECMSPerCM           float64   `json:"ec_ms_per_cm"`
+	LightLux            float64   `json:"light_lux"`
+	SoilMoisturePercent float64   `json:"soil_moisture_percent"`
+}
+
+func (s *Server) dashboardMeasurements(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.pool.Query(r.Context(), `
+		SELECT p.id::text,
+			COALESCE(NULLIF(p.node_label, ''), NULLIF(slave_nodes.node_label, ''), slave_nodes.id),
+			measurements.measured_at,
+			measurements.ph,
+			measurements.ec_ms_per_cm,
+			measurements.light_lux,
+			measurements.soil_moisture_percent
+		FROM measurements
+		JOIN slave_nodes ON slave_nodes.id = measurements.slave_id
+		JOIN pots p ON p.id = slave_nodes.pot_id
+		WHERE measurements.measured_at >= now() - interval '30 days'
+		ORDER BY p.id, measurements.measured_at`)
+	if err != nil {
+		s.logger.Error("query dashboard measurements", "err", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "dashboard data is unavailable"})
+		return
+	}
+	defer rows.Close()
+
+	response := dashboardResponse{}
+	byID := make(map[string]int)
+	for rows.Next() {
+		var (
+			plantID string
+			label   string
+			reading dashboardReading
+		)
+		if err := rows.Scan(&plantID, &label, &reading.MeasuredAt, &reading.PH, &reading.ECMSPerCM, &reading.LightLux, &reading.SoilMoisturePercent); err != nil {
+			s.logger.Error("scan dashboard measurement", "err", err)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "dashboard data is unavailable"})
+			return
+		}
+		index, found := byID[plantID]
+		if !found {
+			response.Plants = append(response.Plants, dashboardPlant{ID: plantID, Label: label})
+			index = len(response.Plants) - 1
+			byID[plantID] = index
+		}
+		response.Plants[index].Readings = append(response.Plants[index].Readings, reading)
+	}
+	if err := rows.Err(); err != nil {
+		s.logger.Error("iterate dashboard measurements", "err", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "dashboard data is unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) createMasterProvisioning(w http.ResponseWriter, r *http.Request) {

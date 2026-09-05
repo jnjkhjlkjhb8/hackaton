@@ -3,3 +3,5 @@
 .idea
 bin
 deploy/mosquitto/certs/
+frontend/node_modules
+frontend/dist

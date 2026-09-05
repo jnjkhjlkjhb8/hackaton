@@ -204,3 +204,17 @@ npm run build
 所有 Go 程式碼遵循
 [`/Users/jnjkhjlkjhb8/Projects/bus/docs/go-style/`](../bus/docs/go-style/README.md)
 的規範。
+
+## Dashboard data API
+
+`GET /v1/dashboard/measurements` 回傳最近 30 天、依盆栽分組的 telemetry
+讀值。Dashboard 會在載入時使用此 API；若 Host 尚未可用或沒有資料，才會保留
+fixture 畫面。
+
+本機開發時，Vite 預設將 `/v1` 代理到 `http://127.0.0.1:8080`。若 Host
+使用不同位址，可指定：
+
+```sh
+cd frontend
+VITE_API_PROXY_TARGET=http://127.0.0.1:8080 npm run dev
+```

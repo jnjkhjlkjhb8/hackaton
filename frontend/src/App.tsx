@@ -1,4 +1,4 @@
-import { useMemo, useState, type ComponentType } from "react";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { Button, KIND, SIZE } from "baseui/button";
 import { Card } from "baseui/card";
 import { Input } from "baseui/input";
@@ -16,6 +16,16 @@ type Plant = {
   pinned: boolean;
   lastSeen: string;
   series: Record<Metric, number[]>;
+};
+type DashboardReading = {
+  measured_at: string;
+  ph: number;
+  ec_ms_per_cm: number;
+  light_lux: number;
+  soil_moisture_percent: number;
+};
+type DashboardResponse = {
+  plants: Array<{ id: string; label: string; readings: DashboardReading[] }>;
 };
 
 type LegacyInputProps = {
@@ -102,7 +112,7 @@ function createSeries(
     ),
   };
 }
-const plants: Plant[] = [
+const fixturePlants: Plant[] = [
   {
     id: "pothos",
     label: "黃金葛",
@@ -158,6 +168,26 @@ const plants: Plant[] = [
     series: createSeries(16, { moisture: 49, ph: 6.8, ec: 1.46, light: 1670 }),
   },
 ];
+
+function plantFromDashboard(value: DashboardResponse["plants"][number]): Plant {
+  const readings = value.readings;
+  return {
+    id: value.id,
+    label: value.label,
+    zone: "已註冊裝置",
+    attention: false,
+    pinned: true,
+    lastSeen: readings.length
+      ? new Date(readings.at(-1)!.measured_at).toLocaleString("zh-TW")
+      : "尚無讀值",
+    series: {
+      moisture: readings.map((reading) => reading.soil_moisture_percent),
+      ph: readings.map((reading) => reading.ph),
+      ec: readings.map((reading) => reading.ec_ms_per_cm),
+      light: readings.map((reading) => reading.light_lux),
+    },
+  };
+}
 
 const selectPoints = (series: number[], range: Range) =>
   series.slice(-(rangeHours[range] + 1));
@@ -305,13 +335,18 @@ function TrendChart({
   );
 }
 
-function Overview() {
+function Overview({ plants, isLive }: { plants: Plant[]; isLive: boolean }) {
   const [metric, setMetric] = useState<Metric>("moisture");
   const [range, setRange] = useState<Range>("24h");
-  const initial = plants
-    .filter((plant) => plant.attention || plant.pinned)
-    .map((plant) => ({ id: plant.id, label: plant.label }));
+  const initial = useMemo(
+    () =>
+      plants
+        .filter((plant) => plant.attention || plant.pinned)
+        .map((plant) => ({ id: plant.id, label: plant.label })),
+    [plants],
+  );
   const [selected, setSelected] = useState<Option[]>(initial);
+  useEffect(() => setSelected(initial), [initial]);
   const selectedMetric = metrics.find((item) => item.id === metric)!;
   const visible = useMemo(() => {
     const ids = new Set(selected.map((plant) => plant.id));
@@ -333,7 +368,8 @@ function Overview() {
         description="比較多盆植物的感測趨勢，先看變化，再決定是否處理。"
       />
       <p className="fixture-note" role="status">
-        <strong>Fixture 資料</strong> · 正式串接後以每五分鐘讀值更新。
+        <strong>{isLive ? "即時 telemetry 資料" : "Fixture 資料"}</strong> ·
+        {isLive ? " 已從 Host 載入最近 30 天讀值。" : " 尚未連上 Host，顯示示意資料。"}
       </p>
       <section className="dashboard-toolbar" aria-label="趨勢篩選條件">
         <div className="dashboard-control">
@@ -459,7 +495,7 @@ function Overview() {
   );
 }
 
-function PlantsPage() {
+function PlantsPage({ plants }: { plants: Plant[] }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const matching = plants.filter((plant) =>
@@ -708,12 +744,12 @@ function SettingsPage() {
   );
 }
 
-function PageContent({ route }: { route: Route }) {
-  if (route === "plants") return <PlantsPage />;
+function PageContent({ route, plants, isLive }: { route: Route; plants: Plant[]; isLive: boolean }) {
+  if (route === "plants") return <PlantsPage plants={plants} />;
   if (route === "devices") return <DevicesPage />;
   if (route === "activity") return <ActivityPage />;
   if (route === "settings") return <SettingsPage />;
-  return <Overview />;
+  return <Overview plants={plants} isLive={isLive} />;
 }
 
 export default function App({
@@ -724,6 +760,21 @@ export default function App({
   onToggleTheme: () => void;
 }) {
   const [route, setRoute] = useState<Route>("overview");
+  const [plants, setPlants] = useState<Plant[]>(fixturePlants);
+  const [isLive, setIsLive] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/v1/dashboard/measurements", { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("dashboard data unavailable"))))
+      .then((data: DashboardResponse) => {
+        if (data.plants.length) {
+          setPlants(data.plants.map(plantFromDashboard));
+          setIsLive(true);
+        }
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
   const active = navigation.find((item) => item.id === route)!;
   return (
     <div className={`saas-shell${isDark ? " saas-shell--dark" : ""}`}>
@@ -760,7 +811,7 @@ export default function App({
             <strong>{active.label}</strong>
           </div>
           <div className="app-topbar__actions">
-            <span>Fixture 資料</span>
+            <span>{isLive ? "即時資料" : "Fixture 資料"}</span>
             <Button
               kind={KIND.tertiary}
               size={SIZE.compact}
@@ -771,7 +822,7 @@ export default function App({
           </div>
         </header>
         <div className="page-content">
-          <PageContent route={route} />
+          <PageContent route={route} plants={plants} isLive={isLive} />
         </div>
       </main>
     </div>

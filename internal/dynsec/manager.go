@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	controlTopic  = "$CONTROL/dynamic-security/v1"
-	responseTopic = "$CONTROL/dynamic-security/v1/response"
-	masterRole    = "host-master-telemetry"
+	controlTopic     = "$CONTROL/dynamic-security/v1"
+	responseTopic    = "$CONTROL/dynamic-security/v1/response"
+	masterRolePrefix = "host-master-telemetry-"
 )
 
 type Config struct {
@@ -81,10 +81,11 @@ func (m *Manager) ProvisionMaster(ctx context.Context, masterID, password string
 	}
 	defer session.client.Disconnect(250)
 
-	if err := session.ensureRole(ctx); err != nil {
+	roleName := masterRoleName(masterID)
+	if err := session.ensureRole(ctx, roleName, masterID); err != nil {
 		return err
 	}
-	if err := session.createOrUpdateClient(ctx, masterID, password); err != nil {
+	if err := session.createOrUpdateClient(ctx, masterID, password, roleName); err != nil {
 		return err
 	}
 	return nil
@@ -138,16 +139,16 @@ func (m *Manager) connect(ctx context.Context) (*session, error) {
 	return &session{client: client, responses: responses}, nil
 }
 
-func (s *session) ensureRole(ctx context.Context) error {
-	if err := s.send(ctx, command{Command: "createRole", RoleName: masterRole}); err != nil && !alreadyExists(err) {
+func (s *session) ensureRole(ctx context.Context, roleName, masterID string) error {
+	if err := s.send(ctx, command{Command: "createRole", RoleName: roleName}); err != nil && !alreadyExists(err) {
 		return err
 	}
 	allow := true
 	err := s.send(ctx, command{
 		Command:  "addRoleACL",
-		RoleName: masterRole,
+		RoleName: roleName,
 		ACLType:  "publishClientSend",
-		Topic:    "farm/v1/masters/%u/telemetry",
+		Topic:    "farm/v1/masters/" + masterID + "/telemetry",
 		Allow:    &allow,
 		Priority: 10,
 	})
@@ -157,8 +158,8 @@ func (s *session) ensureRole(ctx context.Context) error {
 	return nil
 }
 
-func (s *session) createOrUpdateClient(ctx context.Context, masterID, password string) error {
-	role := []clientRole{{RoleName: masterRole, Priority: 10}}
+func (s *session) createOrUpdateClient(ctx context.Context, masterID, password, roleName string) error {
+	role := []clientRole{{RoleName: roleName, Priority: 10}}
 	err := s.send(ctx, command{
 		Command:  "createClient",
 		Username: masterID,
@@ -179,6 +180,10 @@ func (s *session) createOrUpdateClient(ctx context.Context, masterID, password s
 		ClientID: masterID,
 		Roles:    role,
 	})
+}
+
+func masterRoleName(masterID string) string {
+	return masterRolePrefix + masterID
 }
 
 func (s *session) send(ctx context.Context, item command) error {
