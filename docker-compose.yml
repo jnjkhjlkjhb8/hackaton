@@ -32,6 +32,10 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
 
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
@@ -39,6 +43,7 @@ services:
     depends_on:
       - mosquitto
       - host
+      - frontend
 
 volumes:
   mosquitto-data:

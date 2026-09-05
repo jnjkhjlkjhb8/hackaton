@@ -33,6 +33,7 @@ Master Node ── MQTT over WSS ── Cloudflare Tunnel ── Mosquitto
 - 已建立的 Cloudflare Tunnel 與兩個公開 hostname：
   - `mqtt.example.com` → `http://mosquitto:9001`
   - `api.example.com` → `http://host:8080`
+  - `hackathon.example.com` → `http://frontend:80`
 
 Cloudflare 必須允許 WebSocket。外部 ESP32 使用 `wss://mqtt.example.com`；
 VPS 內的 Go 服務使用 `tcp://mosquitto:1883`。
