@@ -33,3 +33,4 @@ services:
 
 volumes:
   mosquitto-data:
+    name: farmhost-mosquitto-data
