@@ -23,7 +23,8 @@ Master Node ── MQTT over WSS ── Cloudflare Tunnel ── Mosquitto
 - Master、Slave 與盆栽關係由資料庫管理，未註冊或已停用的 Slave 無法寫入資料。
 
 完整領域用語請見 [CONTEXT.md](./CONTEXT.md)，裝置身分決策請見
-[ADR 0001](./docs/adr/0001-mqtt-device-identity.md)。
+[ADR 0001](./docs/adr/0001-mqtt-device-identity.md)，ESP32 Master 實作請見
+[ESP32 Master 與後端對接指南](./docs/ESP32_MASTER_BACKEND_INTEGRATION.md)。
 
 ## 需求
 

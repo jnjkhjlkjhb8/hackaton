@@ -3,12 +3,27 @@
 本文件定義 Master Node 與 Host 後端的 MQTT 對接。Slave Node 不直接連
 Cloudflare 或 MQTT Broker；它只將資料交給其 Master Node。
 
+## 部署中的端點
+
+目前正式環境使用下列端點。HTTPS enrollment 走 Dashboard 的同網域反向代理，
+因此 ESP32 不需要依賴另一個 API hostname。
+
+| 用途 | 正式端點 |
+| --- | --- |
+| Master enrollment | `https://hackathon.rabbitsayhello.me/v1/device/master-enrollments` |
+| Slave enrollment／轉移 | `https://hackathon.rabbitsayhello.me/v1/device/slave-enrollments` |
+| MQTT over WSS | `wss://mqtt.rabbitsayhello.me/` |
+| Dashboard 驗證 API | `https://hackathon.rabbitsayhello.me/v1/dashboard/measurements` |
+
+不要在 ESP32 使用 Docker service name、VPS IP、`1883` 或 `8883`。這些只供
+VPS 內部服務使用。
+
 ## 1. 連線資訊
 
 | 項目 | 值 |
 | --- | --- |
 | 對外協定 | MQTT over WebSocket Secure（WSS） |
-| Hostname | `mqtt.<你的網域>` |
+| Hostname | `mqtt.rabbitsayhello.me`（其他環境替換為自己的 hostname） |
 | Port | `443` |
 | WebSocket path | `/` |
 | MQTT version | MQTT 3.1.1 |
@@ -18,7 +33,7 @@ Cloudflare 或 MQTT Broker；它只將資料交給其 Master Node。
 ESP32 不連到 VPS IP、`1883`、`8883` 或 Docker service name。它只能連到：
 
 ```text
-wss://mqtt.<你的網域>/
+wss://mqtt.rabbitsayhello.me/
 ```
 
 Cloudflare Tunnel 將此 WSS 連線轉發至 VPS 內部的 Mosquitto WebSocket
@@ -36,7 +51,7 @@ listener（`http://mosquitto:9001`）。
 `enrollment_token`。它透過 HTTPS 呼叫：
 
 ```text
-POST https://api.<你的網域>/v1/device/master-enrollments
+POST https://hackathon.rabbitsayhello.me/v1/device/master-enrollments
 ```
 
 ```json
@@ -46,6 +61,18 @@ POST https://api.<你的網域>/v1/device/master-enrollments
 成功回應只會一次性提供 `mqtt_username` 與 `mqtt_password`。Master 必須將
 它們儲存在裝置設定區，並以 `master_id` 作為 MQTT client ID。不可讓 ESP32
 使用共用正式 MQTT 帳密。
+
+```json
+{
+  "master_id": "master-001",
+  "mqtt_username": "master-001",
+  "mqtt_password": "only-returned-once"
+}
+```
+
+此請求成功時為 HTTP `201 Created`；一次性 enrollment token 使用過後不可重用。
+正式部署前，由管理員先呼叫受 Cloudflare Access 保護的
+`POST /v1/admin/master-enrollments`，再以安全方式將 token 交給該台 ESP32。
 
 ## 3. Telemetry topic
 
@@ -126,7 +153,7 @@ MQTT keepalive。
 Slave 初次連到 Master、或使用者要求改綁時，Master 以 HTTPS 代送：
 
 ```text
-POST https://api.<你的網域>/v1/device/slave-enrollments
+POST https://hackathon.rabbitsayhello.me/v1/device/slave-enrollments
 ```
 
 ```json
@@ -145,7 +172,42 @@ Master。
 `transfer_token`、MQTT 密碼與 Wi-Fi 密碼均不可放在 telemetry payload、
 Serial log 或 Git repository。
 
-## 7. 管理命令
+## 7. ESP32 Master 實作順序
+
+1. 連上 Wi-Fi，透過 NTP 將系統時間校正為 UTC。
+2. 若 NVS 尚無 MQTT 帳密，以 HTTPS `POST` 送出 `master_id` 與
+   `enrollment_token`；只在 NVS 保存回應中的 MQTT 帳密，不輸出到 Serial log。
+3. 使用 `wss://mqtt.rabbitsayhello.me/` 建立 MQTT 3.1.1 連線；設定
+   client ID 和 username 都為 `master_id`，password 為 enrollment 回應的
+   `mqtt_password`，並驗證 Cloudflare 的根憑證。
+4. 每五分鐘彙整各 Slave 讀值，產生一個 UUID `message_id` 與 UTC RFC 3339
+   `measured_at`，以 QoS 1 publish 到自己的 telemetry topic。
+5. publish 失敗時先寫入本機佇列；重連後由舊到新補送，且不可更換原本的
+   `message_id`。
+
+推薦使用 ESP-IDF 的 `esp_http_client`（enrollment）與 `esp-mqtt`
+（`MQTT_TRANSPORT_OVER_WSS`）。兩個 client 都必須指定 CA 憑證；測試階段也
+不可關閉 TLS 憑證驗證。
+
+### 最小流程偽碼
+
+```text
+connect_wifi()
+sync_ntp()
+credentials = load_credentials_from_nvs()
+if credentials missing:
+    credentials = POST enrollment_url({master_id, enrollment_token})
+    save_credentials_to_nvs(credentials)
+
+connect_mqtt_wss(url, client_id=master_id,
+                 username=credentials.mqtt_username,
+                 password=credentials.mqtt_password, ca_cert)
+every 5 minutes:
+    batch = build_batch(uuid_v4(), utc_rfc3339_now(), slave_readings)
+    publish("farm/v1/masters/" + master_id + "/telemetry", batch, qos=1)
+```
+
+## 8. 管理命令
 
 Host 對 Master 的設定更新使用另一組 command topic，並採非同步狀態：
 
@@ -156,7 +218,7 @@ pending → applied | failed | expired
 Master 必須為批量命令回報每個 Slave 的結果。命令 payload 會另行版本化；
 ESP32 不應自行猜測或使用未公布的 topic。
 
-## 8. ESP32 端檢查清單
+## 9. ESP32 端檢查清單
 
 - [ ] 使用 WSS，而非 raw TCP MQTT。
 - [ ] 驗證 Cloudflare TLS 憑證。
