@@ -2,7 +2,7 @@
 
 Go 後端，負責接收 ESP32 Master Node 經 MQTT over WSS 上傳的盆栽感測資料，並保存至 PostgreSQL。
 
-目前不包含 Dashboard、AI、OTA 或遠端 Wi-Fi 設定。
+Dashboard 前端位於 `frontend/`，目前以 fixture 資料提供全域趨勢判讀；AI、OTA 與遠端 Wi-Fi 設定不在本階段範圍。
 
 ## 架構
 
@@ -76,6 +76,11 @@ telemetry batch 與 measurement 資料表。
 需在 Mosquitto 資料目錄初始化 `dynamic-security.json`，再以
 `mosquitto_ctrl dynsec` 建立 Go consumer 帳號及其訂閱權限。
 
+先執行 `sh scripts/init-mosquitto-tls.sh` 建立只供容器內 Dynamic Security
+管理用的 TLS listener 憑證。管理時請連至 `mosquitto:8883` 並指定
+`--cafile /mosquitto/certs/ca.crt`；不要使用未加密的 `1883` 執行
+`mosquitto_ctrl`。
+
 裝置帳密與 `farm/v1/masters/{master_id}/telemetry` 的 publish ACL 應由
 Dynamic Security 管理；不可使用匿名或共用正式裝置帳密。
 
@@ -134,6 +139,23 @@ farm/v1/masters/{master_id}/telemetry
 gofmt -w cmd internal
 go test ./...
 go vet ./...
+```
+
+## Dashboard 前端
+
+`frontend/` 是以 React、Vite 與 Uber Base Web（`baseui`）建立的 SaaS 前端。它包含全域趨勢總覽、盆栽、裝置、活動紀錄與設定工作區；總覽預設比較最近 24 小時的土壤濕度，並可切換指標、時間範圍、可見盆栽與淺／深主題。fixture 資料刻意獨立於 UI，以便後續接上 telemetry 查詢 API。
+
+```sh
+cd frontend
+npm install
+npm run dev
+```
+
+正式驗證 production bundle：
+
+```sh
+cd frontend
+npm run build
 ```
 
 所有 Go 程式碼遵循
