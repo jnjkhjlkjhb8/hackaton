@@ -54,6 +54,10 @@ Go 服務啟動時會自動讀取專案根目錄的 `.env`；若檔案不存在�
 | `MQTT_BROKER_URL` | Go 服務連線至 Broker 的 URL，例如 `tcp://mosquitto:1883` |
 | `MQTT_USERNAME` | Go telemetry consumer 的 Dynamic Security 帳號 |
 | `MQTT_PASSWORD` | Go telemetry consumer 的密碼 |
+| `DYNSEC_MQTT_*` | 專供 Host 自動建立 Master MQTT 身分的 Dynamic Security 管理帳號 |
+| `DYNSEC_CA_FILE` | Host 容器內驗證 `mosquitto:8883` 的 CA 憑證位置 |
+| `CLOUDFLARE_ACCESS_TEAM_DOMAIN` | Cloudflare Access team domain，例如 `team.cloudflareaccess.com` |
+| `CLOUDFLARE_ACCESS_AUDIENCE` | 管理 API Access application 的 AUD tag |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Cloudflare Tunnel token |
 | `HTTP_ADDR` | 選用，預設 `:8080` |
 
@@ -83,6 +87,44 @@ telemetry batch 與 measurement 資料表。
 
 裝置帳密與 `farm/v1/masters/{master_id}/telemetry` 的 publish ACL 應由
 Dynamic Security 管理；不可使用匿名或共用正式裝置帳密。
+
+## 裝置 enrollment
+
+Host 現在提供三個 API。管理員先透過 Cloudflare Access 呼叫 Master 預建 API；
+Host 產生一次性 token，資料庫只保存其 SHA-256 雜湊。Master 首次以 token
+呼叫裝置 API 時，Host 會自動建立或重設該 Master 的 Dynamic Security client、
+限制它的 MQTT client ID 與 telemetry topic，並只在 API 回應中回傳一次 MQTT
+密碼。Slave 不直接持有 MQTT 帳密；它以自己的 transfer token 建立或改綁 Master。
+
+| Method / path | Access | 用途 |
+| --- | --- | --- |
+| `POST /v1/admin/master-enrollments` | Cloudflare Access JWT | 預建 Master 並取得一次性 enrollment token |
+| `POST /v1/device/master-enrollments` | enrollment token | 取得一次性的 Master MQTT credentials |
+| `POST /v1/device/slave-enrollments` | Slave transfer token | 初次建立 Slave 或改綁至已註冊 Master |
+
+Cloudflare Access 必須只保護 `/v1/admin/*`；裝置 enrollment endpoint 需要讓
+ESP32 經 HTTPS 存取。首次部署仍需要人工建立一個專用的
+`host-dynsec-manager` Dynamic Security 管理帳號，並將其帳密填入
+`DYNSEC_MQTT_USERNAME` 與 `DYNSEC_MQTT_PASSWORD`。這是建立 Dynamic
+Security 控制權本身所需的一次性 bootstrap，不是裝置的共用帳密。
+
+Master enrollment 請求：
+
+```json
+{"master_id":"master-001","enrollment_token":"one-time-secret"}
+```
+
+Slave enrollment 或轉移請求：
+
+```json
+{"slave_id":"slave-001","master_id":"master-001","node_label":"Pot A","transfer_token":"slave-owned-secret"}
+```
+
+Master 的 MQTT username 與 client ID 都必須等於 `master_id`，且只可發布：
+
+```text
+farm/v1/masters/{master_id}/telemetry
+```
 
 ## 啟動
 

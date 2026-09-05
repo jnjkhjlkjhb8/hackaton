@@ -12,7 +12,10 @@ import (
 	"syscall"
 	"time"
 
+	"example.com/farmhost/internal/access"
 	"example.com/farmhost/internal/config"
+	"example.com/farmhost/internal/dynsec"
+	"example.com/farmhost/internal/enrollment"
 	"example.com/farmhost/internal/httpapi"
 	"example.com/farmhost/internal/store"
 	"example.com/farmhost/internal/telemetry"
@@ -40,6 +43,7 @@ func run() error {
 		return fmt.Errorf("open store: %w", err)
 	}
 	defer pool.Close()
+	repository := store.New(pool)
 	consumer := telemetry.NewConsumer(telemetry.WriterFunc(func(ctx context.Context, masterID string, batch telemetry.Batch) error {
 		return store.StoreBatch(ctx, pool, masterID, batch)
 	}), logger)
@@ -49,7 +53,28 @@ func run() error {
 	}
 	defer mqttClient.Disconnect(250)
 
-	srv := httpapi.NewServer(pool, logger, cfg.HTTPAddr)
+	provisioner := enrollment.CredentialProvisioner(unavailableProvisioner{})
+	if cfg.DynSecMQTTUsername != "" {
+		manager, err := dynsec.New(dynsec.Config{
+			BrokerURL: cfg.DynSecMQTTBrokerURL,
+			Username:  cfg.DynSecMQTTUsername,
+			Password:  cfg.DynSecMQTTPassword,
+			CAFile:    cfg.DynSecCAFile,
+		})
+		if err != nil {
+			return fmt.Errorf("new Dynamic Security manager: %w", err)
+		}
+		provisioner = manager
+	}
+	var authorizer *access.Authorizer
+	if cfg.CloudflareAccessAudience != "" {
+		authorizer, err = access.New(cfg.CloudflareAccessTeamDomain, cfg.CloudflareAccessAudience)
+		if err != nil {
+			return fmt.Errorf("new Cloudflare Access authorizer: %w", err)
+		}
+	}
+	enrollmentService := enrollment.New(repository, provisioner)
+	srv := httpapi.NewServer(pool, logger, cfg.HTTPAddr, enrollmentService, authorizer)
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Run() }()
 
@@ -65,4 +90,10 @@ func run() error {
 		return fmt.Errorf("shutdown server: %w", err)
 	}
 	return nil
+}
+
+type unavailableProvisioner struct{}
+
+func (unavailableProvisioner) ProvisionMaster(context.Context, string, string) error {
+	return enrollment.ErrCredentialUnavailable
 }

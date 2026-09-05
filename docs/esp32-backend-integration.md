@@ -33,8 +33,19 @@ listener（`http://mosquitto:9001`）。
 - 正式帳密只允許 publish 到此 Master 的 telemetry topic。
 
 首次部署的 Master 必須先完成 provisioning，取得 `master_id` 與一次性
-`enrollment_token`。正式自動註冊與帳密下發流程會使用受限 bootstrap
-帳密；在該流程完成前，不可讓 ESP32 使用共用正式 MQTT 帳密。
+`enrollment_token`。它透過 HTTPS 呼叫：
+
+```text
+POST https://api.<你的網域>/v1/device/master-enrollments
+```
+
+```json
+{"master_id":"master-001","enrollment_token":"one-time-secret"}
+```
+
+成功回應只會一次性提供 `mqtt_username` 與 `mqtt_password`。Master 必須將
+它們儲存在裝置設定區，並以 `master_id` 作為 MQTT client ID。不可讓 ESP32
+使用共用正式 MQTT 帳密。
 
 ## 3. Telemetry topic
 
@@ -112,6 +123,25 @@ MQTT keepalive。
 - Slave 初次建立或改綁新 Master 時，必須使用自己的 `transfer_token`。
 - Slave 改綁成功後，舊 Master 不能再上傳該 Slave 的讀值。
 
+Slave 初次連到 Master、或使用者要求改綁時，Master 以 HTTPS 代送：
+
+```text
+POST https://api.<你的網域>/v1/device/slave-enrollments
+```
+
+```json
+{
+  "slave_id": "slave-001",
+  "master_id": "master-001",
+  "node_label": "Pot A",
+  "transfer_token": "slave-owned-secret"
+}
+```
+
+第一次呼叫會建立一盆預設盆栽；之後以同一 transfer token 呼叫並更換
+`master_id`，即可改綁 Master。Host 只允許綁定已完成 enrollment 且未停用的
+Master。
+
 `transfer_token`、MQTT 密碼與 Wi-Fi 密碼均不可放在 telemetry payload、
 Serial log 或 Git repository。
 
@@ -123,9 +153,8 @@ Host 對 Master 的設定更新使用另一組 command topic，並採非同步�
 pending → applied | failed | expired
 ```
 
-Master 必須為批量命令回報每個 Slave 的結果。命令 payload、bootstrap
-registration topic 與 Dynamic Security 帳密建立流程會在管理 API 實作完成時
-另行版本化；ESP32 不應自行猜測或使用未公布的 topic。
+Master 必須為批量命令回報每個 Slave 的結果。命令 payload 會另行版本化；
+ESP32 不應自行猜測或使用未公布的 topic。
 
 ## 8. ESP32 端檢查清單
 
