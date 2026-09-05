@@ -118,7 +118,9 @@ func (s *Server) dashboardMeasurements(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	response := dashboardResponse{}
+	// Use empty arrays in the public contract so a newly provisioned farm is a
+	// valid, renderable dashboard response rather than `{\"plants\":null}`.
+	response := dashboardResponse{Plants: make([]dashboardPlant, 0)}
 	byID := make(map[string]int)
 	for rows.Next() {
 		var (
@@ -133,7 +135,7 @@ func (s *Server) dashboardMeasurements(w http.ResponseWriter, r *http.Request) {
 		}
 		index, found := byID[plantID]
 		if !found {
-			response.Plants = append(response.Plants, dashboardPlant{ID: plantID, Label: label})
+			response.Plants = append(response.Plants, dashboardPlant{ID: plantID, Label: label, Readings: make([]dashboardReading, 0)})
 			index = len(response.Plants) - 1
 			byID[plantID] = index
 		}

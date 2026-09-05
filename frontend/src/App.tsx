@@ -767,10 +767,8 @@ export default function App({
     void fetch("/v1/dashboard/measurements", { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("dashboard data unavailable"))))
       .then((data: DashboardResponse) => {
-        if (data.plants.length) {
-          setPlants(data.plants.map(plantFromDashboard));
-          setIsLive(true);
-        }
+        setPlants(Array.isArray(data.plants) ? data.plants.map(plantFromDashboard) : []);
+        setIsLive(true);
       })
       .catch(() => undefined);
     return () => controller.abort();
