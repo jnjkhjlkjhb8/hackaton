@@ -198,6 +198,10 @@ func (s *Server) authorizeAdmin(w http.ResponseWriter, r *http.Request) bool {
 	}
 	actor, err := s.authorizer.Authorize(r.Context(), r.Header.Get(access.AssertionHeader))
 	if err != nil {
+		s.logger.Warn("[DEBUG-cfaccess-9d1c] admin authorization failed",
+			"reason", err,
+			"has_access_assertion", r.Header.Get(access.AssertionHeader) != "",
+		)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return false
 	}

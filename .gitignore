@@ -1,4 +1,6 @@
 .env
+.agents
+.claude
 *.local
 deploy/mosquitto/dynamic-security.json
 deploy/mosquitto/certs/

@@ -103,8 +103,17 @@ func (a *Authorizer) Authorize(ctx context.Context, header string) (string, erro
 
 func (a *Authorizer) validateClaims(tokenClaims claims) error {
 	now := time.Now().Unix()
-	if tokenClaims.Issuer != a.issuer || tokenClaims.Expires <= now || tokenClaims.NotBefore > now || !hasAudience(tokenClaims.Audience, a.audience) {
-		return errors.New("invalid Cloudflare Access assertion")
+	if tokenClaims.Issuer != a.issuer {
+		return errors.New("Cloudflare Access assertion issuer does not match configuration")
+	}
+	if tokenClaims.Expires <= now {
+		return errors.New("Cloudflare Access assertion has expired")
+	}
+	if tokenClaims.NotBefore > now {
+		return errors.New("Cloudflare Access assertion is not active yet")
+	}
+	if !hasAudience(tokenClaims.Audience, a.audience) {
+		return errors.New("Cloudflare Access assertion audience does not match configuration")
 	}
 	return nil
 }
