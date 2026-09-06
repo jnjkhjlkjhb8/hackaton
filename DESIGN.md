@@ -1,10 +1,10 @@
 <!-- SEED: re-run $impeccable document once there's code to capture the actual tokens and components. -->
 ---
-name: Plant Telemetry Dashboard
+name: Chain Plants Dashboard
 description: A Base Web dashboard for comparing global plant-sensor trends.
 ---
 
-# Design System: Plant Telemetry Dashboard
+# Design System: Chain Plants Dashboard
 
 ## Overview
 

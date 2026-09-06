@@ -778,8 +778,7 @@ export default function App({
     <div className={`saas-shell${isDark ? " saas-shell--dark" : ""}`}>
       <aside className="app-sidebar" aria-label="主導覽">
         <div className="brand-lockup">
-          <strong>Plant telemetry</strong>
-          <span>Operations</span>
+          <strong>Chain Plants</strong>
         </div>
         <nav className="primary-nav">
           {navigation.map((item) => (
